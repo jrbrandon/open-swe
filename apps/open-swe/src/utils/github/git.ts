@@ -27,12 +27,26 @@ const logger = createLogger(LogLevel.INFO, "GitHub-Git");
 /**
  * Parses git status output and returns an array of file paths.
  * Removes the git status indicators (first 3 characters) from each line.
+ * Also strips quotes that git adds around filenames with spaces or special characters.
  */
 export function parseGitStatusOutput(gitStatusOutput: string): string[] {
   return gitStatusOutput
     .split("\n")
     .filter((line) => line.trim() !== "")
-    .map((line) => line.substring(3))
+    .map((line) => {
+      // Remove the git status indicators (first 3 characters)
+      let filename = line.substring(3);
+      
+      // Git wraps filenames containing spaces or special characters in quotes
+      // Remove these quotes if present
+      if (filename.startsWith('"') && filename.endsWith('"')) {
+        filename = filename.slice(1, -1);
+        // Git also escapes special characters within quoted names, 
+        // but for now we'll just handle the simple case
+      }
+      
+      return filename;
+    })
     .filter(Boolean);
 }
 
@@ -229,6 +243,20 @@ export async function checkoutBranchAndCommit(
   }
 
   // Add only validated files instead of adding all files with "."
+  logger.info("DEBUG: Git add operation details", {
+    absoluteRepoDir,
+    validFilesCount: validFiles.length,
+    validFiles: validFiles.slice(0, 10), // Show first 10 files
+    sandboxId: sandbox?.id,
+    sandboxState: sandbox?.state,
+  });
+  
+  // Verify at least one file exists before attempting git add
+  if (validFiles.length === 0) {
+    logger.warn("No files to add to git");
+    return { branchName, updatedTaskPlan: options.taskPlan };
+  }
+  
   await sandbox.git.add(absoluteRepoDir, validFiles);
 
   const botAppName = process.env.GITHUB_APP_NAME;
